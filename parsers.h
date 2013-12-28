@@ -11,9 +11,9 @@
 #include <stdlib.h>
 
 //Parse a message sent from client to server
-char* ParseClientMsg(char* msg);
+int ParseClientMsg(char* msg);
 
 //Parse a message sent from server to client
-char* ParseServerMsg(char* msg);
+int ParseServerMsg(char* msg);
 
 #endif

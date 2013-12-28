@@ -3,14 +3,28 @@
 //  
 
 #include "parsers.h"
-#include <math.h>
 
 
 //Parse a message sent from client to server
-char* ParseClientMsg(char* msg){
-    int len = msg[0]*pow(256,3) + msg[1]*pow(256,2)+ msg[2]*256 + msg[3];
-    //TODO
+int ParseClientMsg(char* msg, int msg_len, char* out_msg){
+    int ret = 0;
     
+    if (msg[0] == '@'){
+        ret = 1;
+    }
+    
+    else if (msg[0] == '/'){
+        if (strcmp(msg+1, "who") == 0){
+            ret = 2;
+        }
+        else if (strcmp(msg+1, "leave") == 0){
+            ret = 3;
+        }
+        else if (strcmp(msg+1, "history") == 0){
+            ret = 4;
+        }
+    }
+    return ret;
 }
 
 //Parse a message sent from server to client
