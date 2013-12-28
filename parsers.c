@@ -4,9 +4,12 @@
 
 #include "parsers.h"
 
+/*
+ * Parsers assume that given message is a string (ends with '\0')
+ */
 
 //Parse a message sent from client to server
-int ParseClientMsg(char* msg, int msg_len, char* out_msg){
+int ParseClientMsg(char* msg){
     int ret = 0;
     
     if (msg[0] == '@'){
