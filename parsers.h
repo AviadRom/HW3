@@ -19,6 +19,6 @@ int convertCharsToInt (char* toConvert);
 int ParseClientMsg(char* msg);
 
 //Parse a message sent from server to client
-int ParseServerMsg(char* msg);
+int ParseServerMsg(char* msg, char* name);
 
 #endif

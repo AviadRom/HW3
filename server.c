@@ -8,7 +8,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
-#include "parsers.h"
+#include "./parsers.h"
 
 #define MAX_INT 2147000000
 #define TRUE 1
@@ -24,7 +24,7 @@ struct msg_thread;
 struct client_node;
 struct msg_node;
 struct msg_queue;
-struct client_list;
+struct Client_List;
 struct name_list;
 struct name_node;
 
@@ -56,12 +56,12 @@ struct Client_Node {
 	char* name;
 	int fifo_in;
 	int fifo_out;
-	sem_t *fifo_in_lock;
+	sem_t fifo_in_lock;
 	pthread_t private_thread;
 	pthread_t public_thread;
 	struct msg_queue private_queue;
 	struct msg_queue public_queue;
-	sem_t *access_lock; /* (unlimited access) */
+	sem_t access_lock; /* (unlimited access) */
 	int alive;
 };
 
@@ -71,7 +71,26 @@ struct Client_List {
 
 typedef struct Client_Node Client_Node;
 
+
 /**************************************msg queue******************************/
+
+void queue_pop(struct msg_queue* queue) {
+	struct msg_node *tmp = queue->head->next;
+	queue->head->next = tmp->next;
+	tmp->next->prev = queue->head->next;
+	free(tmp);
+}
+
+void queue_insert_msg(struct msg_queue* queue, char* msg, int msg_len){
+	struct msg_node* node = malloc(sizeof(struct msg_node));
+	node->msg = msg;
+	node->msg_len = msg_len;
+	node->next = queue->tail;
+	node->prev = queue->tail->prev;
+	queue->tail->prev->next = node;
+	queue->tail->prev = node;
+	queue->size++;
+}
 
 int init_queue(struct msg_queue* queue) {
 	queue = (struct msg_queue*)malloc(sizeof(struct msg_queue));
@@ -99,29 +118,13 @@ void destroy_queue(struct msg_queue* queue){
 	free(queue);
 }
 
-void queue_pop(struct msg_queue* queue) {
-	struct msg_node *tmp = queue->head->next;
-	queue->head->next = tmp->next;
-	tmp->next->prev = queue->head->next;
-	free(tmp);
-}
-
-void queue_insert_msg(struct msg_queue* queue, char* msg, int msg_len){
-	struct msg_node* node = malloc(sizeof(struct msg_node));
-	node->msg = msg;
-	node->msg_len = msg_len;
-	node->next = queue->tail;
-	node->prev = queue->tail->prev;
-	queue->tail->prev->next = node;
-	queue->tail->prev = node;
-	queue->size++;
-}
 
 /*****************************************************************************/
 
 /**********************************listener_run_thread*************************/
-
+void* who_thread(void* client_node);
 void handle_msg(Client_Node* client, char* msg, int msg_len);
+void* history_thread(void* client_node);
 
 pthread_t listener_thread;
 void* listener_run_thread(){
@@ -131,7 +134,7 @@ void* listener_run_thread(){
 	int gotten_tmp = 0;
 	char *msg;
 
-	sem_wait(client_list.head->next.access_lock);
+	sem_wait(&client_list.head->next->access_lock);
 	Client_Node *current = client_list.head;
 	Client_Node *tmp = NULL;
 
@@ -161,37 +164,39 @@ void* listener_run_thread(){
 		}
 		try_next:
 		tmp = current->next;
-		sem_wait(tmp->access_lock);
+		sem_wait(&tmp->access_lock);
 		if (tmp != current->next) {
-			sem_post(tmp->access_lock);
+			sem_post(&tmp->access_lock);
 			goto try_next;
 		}
 		tmp = current;
 		current = current->next;
-		sem_post(tmp.access_lock);
+		sem_post(&tmp->access_lock);
 	}
 	return 0;
 }
 
 void handle_msg(Client_Node* client, char* msg, int msg_len){
 	pthread_t cmd;
+    int f_m_len;
+    char* formatted_msg;
 	switch(ParseClientMsg(msg)){
 	case 0:
-		//public case.
-		int f_m_len = 6 + msg_len + strlen(client->name);
-		char* formatted_msg = malloc(sizeof(char)*f_m_len);
+		/*public case.*/
+		f_m_len = 6 + msg_len + strlen(client->name);
+		formatted_msg = malloc(sizeof(char)*f_m_len);
 		convertIntToChars(f_m_len-4, formatted_msg);
 		sprintf(formatted_msg+4, "%s: %s", client->name, msg);
 		free(msg);
-		sem_wait(client->public_queue->queue_lock);
-		queue_insert_msg(client->public_queue, formatted_msg, f_m_len);
-		sem_post(client->public_queue->queue_lock);
+		sem_wait(client->public_queue.queue_lock);
+		queue_insert_msg(&client->public_queue, formatted_msg, f_m_len);
+		sem_post(client->public_queue.queue_lock);
 		break;
 	case 1:
 		//private case.
-		sem_wait(client->private_queue->queue_lock);
-		queue_insert_msg(client->private_queue, msg, msg_len);
-		sem_post(client->private_queue->queue_lock);
+		sem_wait(client->private_queue.queue_lock);
+		queue_insert_msg(&client->private_queue, msg, msg_len);
+		sem_post(client->private_queue.queue_lock);
 		break;
 	case 2:
 		//who case.
@@ -293,14 +298,14 @@ send_private(msg, address) {
 /* history thread handler (client_node)*/
 void* history_thread(void* client_node){
 	int i;
-	int index
+	int index;
 	int gotten = 0;
 	int temp;
 	int msg_len;
 	Client_Node* client = (Client_Node*)client_node;
-	sem_wait(client->access_lock);
+	sem_wait(&client->access_lock);
 	sem_wait(&hist_lock);
-	sem_wait(client->fifo_in_lock);
+	sem_wait(&client->fifo_in_lock);
 
 	for(i = 0; i < hist_size; i++){
 		index = (i + hist_head)%100;
@@ -315,9 +320,9 @@ void* history_thread(void* client_node){
 		gotten = 0;
 	}
 
-	sem_post(client->fifo_in_lock);
+	sem_post(&client->fifo_in_lock);
 	sem_post(&hist_lock);
-	sem_post(client->access_lock);
+	sem_post(&client->access_lock);
 	return 0;
 }
 
@@ -326,11 +331,11 @@ void* who_thread(void* client_node){
 	struct msg_queue* whos;
 	init_queue(whos);
 	Client_Node* client = (Client_Node*)client_node;
-	sem_wait(client->access_lock);
+	sem_wait(&client->access_lock);
 
 	Client_Node* iterator = client;
 	Client_Node* tmp_iter = NULL;
-	sem_wait(iterator->access_lock);
+	sem_wait(&iterator->access_lock);
 	do{
 		int msg_len = 4+5+strlen(iterator->name);
 		char* who_msg = malloc(sizeof(char)*msg_len);
@@ -340,18 +345,18 @@ void* who_thread(void* client_node){
 
 		next_iter:
 		tmp_iter = iterator->next;
-		sem_wait(tmp_iter->access_lock);
+		sem_wait(&tmp_iter->access_lock);
 		if(tmp_iter != iterator->next){
-			sem_post(tmp_iter->access_lock);
+			sem_post(&tmp_iter->access_lock);
 			goto next_iter;
 		}
 		tmp_iter = iterator;
 		iterator = iterator->next;
-		sem_post(tmp_iter->access_lock);
+		sem_post(&tmp_iter->access_lock);
 	} while (iterator != client);
-	sem_post(iterator->access_lock);
+	sem_post(&iterator->access_lock);
 
-	sem_wait(client->fifo_in_lock);
+	sem_wait(&client->fifo_in_lock);
 	int i;
 	int gotten = 0;
 	int tmp;
@@ -368,8 +373,8 @@ void* who_thread(void* client_node){
 		current = current->next;
 	}
 
-	sem_post(client->fifo_in_lock);
-	sem_post(client->access_lock);
+	sem_post(&client->fifo_in_lock);
+	sem_post(&client->access_lock);
 	destroy_queue(whos);
 	return 0;
 }
@@ -394,8 +399,8 @@ void document(char* msg, int msg_len) {
 void broadcast(char* msg, int msg_len, Client_Node *node) {
 	struct Client_Node *current = node;
 	do {
-		sem_wait(current->access_lock);
-		sem_wait(current->fifo_in_lock);
+		sem_wait(&current->access_lock);
+		sem_wait(&current->fifo_in_lock);
 			int gotten = 0;
 			int temp;
 			while (gotten < msg_len) {
@@ -405,26 +410,26 @@ void broadcast(char* msg, int msg_len, Client_Node *node) {
 				}
 				gotten += temp;
 			}
-		sem_post(current->fifo_in_lock);
+		sem_post(&current->fifo_in_lock);
 	
 		struct Client_Node *tmp;
 		while (1) {
 			tmp = current->next;
-			sem_wait(tmp->access_lock);
+			sem_wait(&tmp->access_lock);
 			
 			if (tmp != current->next) {
-				sem_post(tmp->access_lock);
+				sem_post(&tmp->access_lock);
 				continue;
 			}
 			break;
 		}
 		tmp = current;
 		current = current->next;
-		sem_post(tmp->access_lock);
+		sem_post(&tmp->access_lock);
 		
 	} while (current != node);
 	
-	sem_post(node->access_lock);
+	sem_post(&node->access_lock);
 	
 	document(msg, msg_len);
 	/* broadcast should free the msg after sending it */
@@ -465,13 +470,13 @@ void* public_thread_run(void* client_node) {//ToDo check with haggai about point
 	my_client->next->prev = my_client->prev;
 	int semval = 0;
 	while (semval < MAX_INT) { 
-		sem_getvalue(my_client->access_lock, &semval); 
+		sem_getvalue(&my_client->access_lock, &semval);
 	}
-	sem_destroy(my_client->access_lock);
+	sem_destroy(&my_client->access_lock);
 	
 	/* wait for fifo_in_lock value to be locked (meaning all threads finished writing, and no new threads will get in) */
-	sem_wait(my_client->fifo_in_lock);
-	sem_destroy(my_client->fifo_in_lock);
+	sem_wait(&my_client->fifo_in_lock);
+	sem_destroy(&my_client->fifo_in_lock);
 	
 	//ToDo destroy queue locks
 
@@ -526,8 +531,8 @@ int DB_insert(char* name, int pid) {
 	node->fifo_out = open(fifoOut, O_WRONLY);
 	
 	/* init locks */
-	sem_init(node->fifo_in_lock, 0, 1);
-	sem_init(node->access_lock, 0, MAX_INT);
+	sem_init(&node->fifo_in_lock, 0, 1);
+	sem_init(&node->access_lock, 0, MAX_INT);
 	
 	/* init queues for private and public threads */
 	init_queue(&node->private_queue); //ToDo check return
@@ -554,7 +559,7 @@ int name_is_invalid(char* name, int name_len) {
 		return FALSE;
 	}
 	Client_Node *current = begin;
-	sem_wait(current->access_lock);
+	sem_wait(&current->access_lock);
 	do {
 		if (strcmp(name, current->name) == 0) {
 			return TRUE;
@@ -563,21 +568,21 @@ int name_is_invalid(char* name, int name_len) {
 		struct Client_Node *tmp;
 		while (1) {
 			tmp = current->next;
-			sem_wait(tmp->access_lock);
+			sem_wait(&tmp->access_lock);
 			
 			if (tmp != current->next) {
-				sem_post(tmp->access_lock);
+				sem_post(&tmp->access_lock);
 				continue;
 			}
 			break;
 		}
 		tmp = current;
 		current = current->next;
-		sem_post(tmp->access_lock);
+		sem_post(&tmp->access_lock);
 		
 	} while (current != begin);
 	
-	sem_post(begin->access_lock);
+	sem_post(&begin->access_lock);
 	/* end get next */
 	return FALSE;
 }
