@@ -10,6 +10,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+
+void convertIntToChars(int toConvert, char* dest);
+
 //Parse a message sent from client to server
 int ParseClientMsg(char* msg);
 

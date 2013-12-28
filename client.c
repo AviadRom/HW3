@@ -16,14 +16,6 @@ int serverFifoActionMsg;
 int alive;
 int exitFlag;
 
-void convertIntToChars(int toConvert, char* dest){
-    int i, tmp;
-    tmp = toConvert;
-    for (i=3; i>=0; i--){
-        dest[i]= tmp%256;
-        tmp /= 256;
-    }
-}
 
 void* FifoListenerThread(void* arg){
     while (alive) {

@@ -4,6 +4,17 @@
 
 #include "parsers.h"
 
+
+
+void convertIntToChars(int toConvert, char* dest){
+    int i, tmp;
+    tmp = toConvert;
+    for (i=3; i>=0; i--){
+        dest[i]= tmp%256;
+        tmp /= 256;
+    }
+}
+
 /*
  * Parsers assume that given message is a string (ends with '\0')
  */
@@ -33,6 +44,7 @@ int ParseClientMsg(char* msg){
 //Parse a message sent from server to client
 int ParseServerMsg(char* msg, char* name){
     int ret;
+    //if i get that i have left the chat - return 9000000
     if (msg[4] != '/'){
         printf ("%s\n", msg+4);
         ret = 0;
