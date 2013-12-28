@@ -3,7 +3,7 @@
 //  
 
 #include "parsers.h"
-
+#include <math.h>
 
 
 void convertIntToChars(int toConvert, char* dest){
@@ -13,6 +13,12 @@ void convertIntToChars(int toConvert, char* dest){
         dest[i]= tmp%256;
         tmp /= 256;
     }
+}
+
+// convert 4 chars array into integer representation
+int convertCharsToInt (char* toConvert){
+    int ret = toConvert[0]*pow(256,3) + toConvert[1]*pow(256,2) + toConvert[2]*256 + toConvert[3];
+    return ret;
 }
 
 /*

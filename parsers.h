@@ -13,6 +13,8 @@
 
 void convertIntToChars(int toConvert, char* dest);
 
+int convertCharsToInt (char* toConvert);
+
 //Parse a message sent from client to server
 int ParseClientMsg(char* msg);
 
