@@ -2,32 +2,66 @@
 //  client.c
 //  
 
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <pthread.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <semaphore.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <math.h>
 #include <unistd.h>
-#include "parsers.h"
+#include <fcntl.h>
+#include <string.h>
+#include <errno.h>
+#include "./parsers.h"
 
 int serverFifoActionMsg;
 int alive;
 int exitFlag;
+static char* name;
 
+pthread_t listenerThread;
+pthread_t writerThread;
 
-void* FifoListenerThread(void* arg){
+void* FifoWriterThread(void*  arg);
+
+void* FifoListenerThread(void* fifoIn){
+    int fifo_in = open((char*)fifoIn, O_RDONLY);
+    char msg_len_arr[4] = {0};
+    int msg_len;
+    int gotten = 0;
+    
     while (alive) {
         int res;
+        int tmp;
+        char* msg;
         //read from fifo
-        res = ParseServerMsg(msg,name);
-        if (res == 1){
-            pthread_create(&writerThread, (pthread_attr_t *)NULL, FifoWriterThread, NULL);
-        }
-        else if (ret < 0){
-            exitFlag = ret;
-            alive = 0;
+        gotten = read(fifo_in, &msg_len_arr,sizeof(char)*4);
+        if (gotten > 0){
+            while (gotten < 4){
+                tmp = read (fifo_in, &msg_len_arr+gotten, sizeof(char)*(4-gotten));
+                if (tmp < 0){
+                    continue;
+                }
+                gotten += tmp;
+            }
+            msg_len = convertCharsToInt(msg_len_arr);
+            msg = malloc(sizeof(char)*msg_len);
+            gotten = 0;
+            while (gotten <  msg_len){
+                tmp = read(fifo_in, msg+gotten, sizeof(char)*(msg_len-gotten));
+                if (tmp < 0){
+                    continue;
+                }
+                gotten += tmp;
+            }
+            res = ParseServerMsg(msg,name);
+            if (res == 1){
+                pthread_create(&writerThread, (pthread_attr_t *)NULL, FifoWriterThread, NULL);
+            }
+            else if (res < 0){
+                exitFlag = res;
+                alive = 0;
+            }
         }
     }
     return 0;//close the thread.
@@ -40,7 +74,7 @@ void* FifoWriterThread(void* arg){
     return 0;
 }
 
-int main(int argc, const char*[] argv){
+int main(int argc, const char** argv){
     if (argc > 2){
         printf("Client Error: too many arguments\n");
         return -3;
@@ -51,7 +85,7 @@ int main(int argc, const char*[] argv){
         return -1;
     }
     
-    static char* name;
+
     int pid=getpid();
     if  (argc < 2){
         name = malloc(20 * sizeof(char));
@@ -71,7 +105,7 @@ int main(int argc, const char*[] argv){
     if(err != 0) //ToDo - Extract function after we make sure it works.
     {
         // most probably file already exists, delete the file
-        unlink(fifopath);
+        unlink(fifoIn);
         // try once more..
         err = mkfifo(fifoIn, 0666);
         if(err != 0)
@@ -94,11 +128,10 @@ int main(int argc, const char*[] argv){
         }
     }
     alive = 1;
-    serverFifoActionMsg = 0
-    unsigned listenerThread;
-    static unsigned writerThread;
+    serverFifoActionMsg = 0;
     
-    pthread_create(&listenerThread, (pthread_attr_t *)NULL, FifoListenerThread, NULL);
+    
+    pthread_create(&listenerThread, (pthread_attr_t *)NULL, FifoListenerThread, fifoIn);
     
     char* message; //ToDo Create actual msg
     message = malloc((8+strlen(name))*sizeof(char));
@@ -118,7 +151,7 @@ int main(int argc, const char*[] argv){
         }
     }
     
-
+    int toReturn = 0;
     if(fd > 0)
     {
         int msgLen = strlen(message);
